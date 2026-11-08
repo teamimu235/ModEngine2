@@ -1,6 +1,22 @@
 #include "crash_handler.h"
 #include "modengine/version.h"
 
+#ifdef MODENGINE_NO_CRASHPAD
+
+namespace modengine {
+
+void start_crash_report_uploads()
+{
+}
+
+void start_crash_handler(const fs::path&, const fs::path&)
+{
+}
+
+}
+
+#else
+
 #include <client/crash_report_database.h>
 #include <client/settings.h>
 #include <client/crashpad_client.h>
@@ -48,3 +64,5 @@ void start_crash_handler(const fs::path &install_root, const fs::path &data_root
 }
 
 }
+
+#endif

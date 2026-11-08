@@ -48,7 +48,7 @@ concurrency::concurrent_unordered_map<std::wstring, std::optional<std::filesyste
 Hook<fpCreateFileW> hooked_CreateFileW;
 
 Hook<decltype(&virtual_to_archive_path_ds3)> hooked_virtual_to_archive_path_ds3;
-Hook<decltype(&virtual_to_archive_path_ds2)> hooked_virtual_to_archive_path_ds2;
+ScannedHook<decltype(&virtual_to_archive_path_ds2)> hooked_virtual_to_archive_path_ds2;
 Hook<decltype(&virtual_to_archive_path_sekiro)> hooked_virtual_to_archive_path_sekiro;
 ScannedHook<decltype(&virtual_to_archive_path_eldenring)> hooked_virtual_to_archive_path_eldenring;
 concurrency::concurrent_vector<std::wstring> hooked_file_roots;
@@ -81,6 +81,7 @@ void process_archive_path(wchar_t* raw_path, size_t raw_path_len)
         L"("
         "data.:\\/"   // References to main data archives (data1:/ etc)
         "|gamedata."  // References to DS2 data archives
+        "|dlc_data."  // References to DS2 DLC data archives
         "|game_....." // References to DS3 DLC archives
         ").+");
     /* clang-format on */
@@ -214,6 +215,16 @@ void* __cdecl virtual_to_archive_path_ds3(DLString<modengine::GameType::DS3, wch
 
 void* __cdecl virtual_to_archive_path_ds2(LPVOID p1, dlstring_t* path)
 {
+    // DS2 resolves virtual asset paths through this function before opening the file. Unlike
+    // DS3/Elden Ring the path is an input that gets rewritten in place (this mirrors how the
+    // original Mod Engine implemented SotFS support). We only touch heap allocated strings:
+    // when the capacity is small enough the game keeps the string inline in the struct and it
+    // must not be rewritten.
+    if (path != nullptr && path->string != nullptr && path->capacity > 7 && path->length >= 6) {
+        auto path_len = wcsnlen(path->string, static_cast<size_t>(path->length));
+        process_archive_path(path->string, path_len);
+    }
+
     return hooked_virtual_to_archive_path_ds2.original(p1, path);
 }
 

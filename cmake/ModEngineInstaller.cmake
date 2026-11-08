@@ -69,13 +69,16 @@ install(FILES tools/scylla/InjectorCLIx64.exe
         COMPONENT application)
 
 install(FILES
+        installer/dist/config_darksouls2.toml
         installer/dist/config_darksouls3.toml
         installer/dist/config_eldenring.toml
         installer/dist/config_armoredcore6.toml
+        installer/dist/launchmod_darksouls2.bat
         installer/dist/launchmod_darksouls3.bat
         installer/dist/launchmod_eldenring.bat
         installer/dist/launchmod_armoredcore6.bat
         installer/dist/README.txt
+        installer/dist/README-DS2.txt
         DESTINATION .
         COMPONENT application)
 install(DIRECTORY DESTINATION "mod")

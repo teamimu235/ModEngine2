@@ -1,4 +1,4 @@
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 enable_language(ASM_MASM)
 enable_testing()
 
@@ -16,6 +16,10 @@ target_include_directories(modengine2_launcher PRIVATE
 
 target_link_libraries(modengine2_launcher PRIVATE
         ${DETOURS_LIBRARY}
+        CLI11::CLI11
         fmt::fmt-header-only
-        spdlog::spdlog_header_only
-        crashpad)
+        spdlog::spdlog_header_only)
+
+if (MODENGINE_ENABLE_CRASHPAD)
+    target_link_libraries(modengine2_launcher PRIVATE crashpad)
+endif ()

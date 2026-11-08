@@ -36,7 +36,7 @@ void* __cdecl virtual_to_archive_path_eldenring(DLString<modengine::GameType::SE
 
 extern Hook<fpCreateFileW> hooked_CreateFileW;
 extern Hook<decltype(&virtual_to_archive_path_ds3)> hooked_virtual_to_archive_path_ds3;
-extern Hook<decltype(&virtual_to_archive_path_ds2)> hooked_virtual_to_archive_path_ds2;
+extern ScannedHook<decltype(&virtual_to_archive_path_ds2)> hooked_virtual_to_archive_path_ds2;
 extern Hook<decltype(&virtual_to_archive_path_sekiro)> hooked_virtual_to_archive_path_sekiro;
 extern ScannedHook<decltype(&virtual_to_archive_path_eldenring)> hooked_virtual_to_archive_path_eldenring;
 extern concurrency::concurrent_vector<std::wstring> hooked_file_roots;

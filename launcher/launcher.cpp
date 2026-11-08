@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <filesystem>
+#include <fstream>
 #include <map>
 
 #include <detours/detours.h>
@@ -29,24 +30,28 @@ struct LaunchTargetParams {
 
 enum LaunchTarget {
     AUTODETECT,
+    DS2,
     DS3,
     ELDEN_RING,
     ARMORED_CORE_6,
 };
 
 static std::map<LaunchTarget, LaunchTargetParams> launch_targets {
+    { DS2, { L"335300", L"Game/DarkSoulsII.exe", L"config_darksouls2.toml" } },
     { DS3, { L"374320", L"Game/DarkSoulsIII.exe", L"config_darksouls3.toml" } },
     { ELDEN_RING, { L"1245620", L"Game/eldenring.exe", L"config_eldenring.toml" } },
     { ARMORED_CORE_6, { L"1888160", L"Game/armoredcore6.exe", L"config_armoredcore6.toml" } }
 };
 
 static std::map<std::string, LaunchTarget> launch_target_names {
+    { "ds2", DS2 },
     { "ds3", DS3 },
     { "er", ELDEN_RING },
     { "ac6", ARMORED_CORE_6 },
 };
 
 static std::map<std::string, LaunchTarget> exe_names {
+    { "DarkSoulsII.exe", DS2 },
     { "DarkSoulsIII.exe", DS3 },
     { "eldenring.exe", ELDEN_RING },
     { "armoredcore6.exe", ARMORED_CORE_6 },
@@ -65,7 +70,7 @@ std::wstring get_env_var(const std::wstring& name)
         value.append(buffer, len);
     }
 
-    delete buffer;
+    delete[] buffer;
 
     return value;
 }
@@ -92,7 +97,7 @@ fs::path get_launcher_directory()
 
 }
 
-int main()
+int main(int argc, char** argv)
 {
     auto logger = spdlog::stderr_color_mt("stderr");
     auto launcher_directory = platform::get_launcher_directory();
@@ -120,10 +125,11 @@ int main()
     app.add_option("--modengine-dll", modengine_dll_path, "ModEngine DLL file path (modengine2.dll)");
 
     try {
-        app.parse();
+        app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
+
 
     std::optional<fs::path> app_path = std::nullopt;
 
@@ -177,6 +183,24 @@ int main()
     auto app_cmd = *app_path / launch_params.executable_path;
     auto app_cwd = fs::absolute(app_cmd.parent_path());
 
+    // Dark Souls 2 is wrapped in SteamStub and refuses to run when started outside of Steam
+    // unless the app id can be discovered from a steam_appid.txt in the game directory.
+    if (target == DS2) {
+        const auto steam_appid_path = app_cmd.parent_path() / L"steam_appid.txt";
+        std::error_code steam_appid_error;
+        if (!fs::exists(steam_appid_path, steam_appid_error)) {
+            std::string app_id(launch_params.app_id.begin(), launch_params.app_id.end());
+            const auto handle = CreateFileW(steam_appid_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+            if (handle != INVALID_HANDLE_VALUE) {
+                DWORD written = 0;
+                WriteFile(handle, app_id.data(), static_cast<DWORD>(app_id.size()), &written, nullptr);
+                CloseHandle(handle);
+                logger->info("Wrote {}", steam_appid_path.string());
+            }
+        }
+    }
+
     if (!fs::exists(modengine_dll_path)) {
         logger->error("Couldn't find path to modengine2.dll at {}", modengine_dll_path.string());
         return E_MODENGINE_NOT_FOUND;
@@ -213,7 +237,7 @@ int main()
     auto *cmd = new wchar_t[cmd_len + 1];
     cmd[cmd_len] = 0;
 
-    wcscpy_s(cmd, cmd_len, cmd_str.c_str());
+    wcscpy_s(cmd, cmd_len + 1, cmd_str.c_str());
 
     auto proc_flags = 0;
     bool success = DetourCreateProcessWithDllW(

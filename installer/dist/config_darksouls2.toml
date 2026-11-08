@@ -1,0 +1,13 @@
+[modengine]
+debug = false
+crash_reporting = false
+external_dlls = []
+
+[extension.mod_loader]
+enabled = true
+mods = [
+    { enabled = true, name = "default", path = "mod" }
+]
+
+[extension.scylla_hide]
+enabled = false

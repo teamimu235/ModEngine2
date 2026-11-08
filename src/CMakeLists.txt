@@ -2,6 +2,12 @@ set(CMAKE_CXX_STANDARD 20)
 enable_language(ASM_MASM)
 enable_testing()
 
+# MASM does not understand C++ compiler flags such as /utf-8 or /Zc:__cplusplus. When they are
+# passed through, ml64 silently skips object file generation (exit code 0) and the final link
+# fails with LNK1104. Use a stripped down rule that only feeds the preprocessor definitions and
+# include paths to ml64.
+set(CMAKE_ASM_MASM_COMPILE_OBJECT "<CMAKE_ASM_MASM_COMPILER> <DEFINES> <INCLUDES> -c -Fo <OBJECT> <SOURCE>")
+
 configure_file("modengine/version.cpp" "${CMAKE_CURRENT_BINARY_DIR}/version.cpp" @ONLY)
 
 source_group(
@@ -82,18 +88,19 @@ target_include_directories(modengine2 PRIVATE
         "../third-party/kiero"
         "../third-party/imgui"
         "../third-party/imgui/backends"
-        "../third-party/MINT"
         "../third-party/ImTerm/include"
         "../third-party/sol2_ImGui_Bindings")
 
 target_link_libraries(modengine2 PRIVATE
         ${DETOURS_LIBRARY}
         spdlog::spdlog_header_only
-        sol2
-        crashpad::crashpad)
+        sol2::sol2)
+
+if (MODENGINE_ENABLE_CRASHPAD)
+    target_link_libraries(modengine2 PRIVATE crashpad::crashpad)
+endif ()
 
 target_precompile_headers(modengine2 PUBLIC
-        "$<$<COMPILE_LANGUAGE:CXX>:<MINT.h$<ANGLE-R>>"
         "$<$<COMPILE_LANGUAGE:CXX>:<sol/sol.hpp$<ANGLE-R>>"
         "$<$<COMPILE_LANGUAGE:CXX>:<fmt/format.h$<ANGLE-R>>"
         "$<$<COMPILE_LANGUAGE:CXX>:<spdlog/spdlog.h$<ANGLE-R>>"

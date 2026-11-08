@@ -20,6 +20,25 @@ extern "C" __declspec(dllexport) HRESULT __cdecl DirectInput8Create(
     LPVOID* ppvOut,
     LPUNKNOWN punkOuter)
 {
+    // When Mod Engine is sideloaded as dinput8.dll the system dinput8 module is not necessarily
+    // loaded yet and the forwarding hook may not have been installed, so resolve it lazily.
+    static fnDirectInput8Create system_dinput8_create = nullptr;
+    if (hooked_DirectInput8Create.original == nullptr) {
+        if (system_dinput8_create == nullptr) {
+            const auto dinput8_path = util::system_directory() / "dinput8.dll";
+            if (auto module = LoadLibraryW(dinput8_path.wstring().c_str())) {
+                system_dinput8_create = reinterpret_cast<fnDirectInput8Create>(
+                    GetProcAddress(module, "DirectInput8Create"));
+            }
+        }
+
+        if (system_dinput8_create != nullptr) {
+            return system_dinput8_create(hinst, dwVersion, riidltf, ppvOut, punkOuter);
+        }
+
+        return E_FAIL;
+    }
+
     return hooked_DirectInput8Create.original(hinst, dwVersion, riidltf, ppvOut, punkOuter);
 }
 

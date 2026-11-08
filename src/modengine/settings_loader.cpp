@@ -52,6 +52,24 @@ SettingsLoadResult SettingsLoader::load(modengine::Settings& settings)
         settings.m_modengine_local_path = local_modengine_path;
         if (result.found_local_config)
             info("Local config loaded");
+    } else {
+        // Mod Engine can be sideloaded (for Dark Souls 2 it has to be, because the game is
+        // protected by SteamStub). In that case there is no launcher to pass MODENGINE_CONFIG,
+        // so fall back to a config file that lives next to the DLL.
+        for (const auto& config_name : { "config_darksouls2.toml", "config.toml" }) {
+            const auto settings_path = m_installation / config_name;
+            if (!fs::exists(settings_path)) {
+                continue;
+            }
+
+            info("Attempting to load config at {}", settings_path.string());
+            result.found_local_config = load_toml_into(settings, settings_path);
+            settings.m_modengine_local_path = m_installation;
+            if (result.found_local_config) {
+                info("Local config loaded");
+            }
+            break;
+        }
     }
 
     return result;
