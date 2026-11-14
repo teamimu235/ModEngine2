@@ -4,11 +4,13 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <vector>
 
 #include <detours/detours.h>
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <toml++/toml.h>
 
 #include "steam_app_path.h"
 
@@ -93,6 +95,72 @@ fs::path get_launcher_directory()
     }
 
     return path;
+}
+
+}
+
+namespace {
+
+bool inject_dll(HANDLE process, const fs::path& dll_path)
+{
+    const auto path = fs::absolute(dll_path).wstring();
+    const auto byte_count = (path.size() + 1) * sizeof(wchar_t);
+
+    auto remote = VirtualAllocEx(process, nullptr, byte_count, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (remote == nullptr) {
+        return false;
+    }
+
+    auto ok = WriteProcessMemory(process, remote, path.c_str(), byte_count, nullptr) != FALSE;
+
+    if (ok) {
+        auto load_library = GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW");
+        auto thread = CreateRemoteThread(process, nullptr, 0,
+            reinterpret_cast<LPTHREAD_START_ROUTINE>(load_library), remote, 0, nullptr);
+
+        if (thread != nullptr) {
+            WaitForSingleObject(thread, 30000);
+            CloseHandle(thread);
+        } else {
+            ok = false;
+        }
+    }
+
+    VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+    return ok;
+}
+
+std::vector<fs::path> read_external_dlls(const fs::path& config_path)
+{
+    std::vector<fs::path> dlls;
+
+    try {
+        const auto table = toml::parse_file(config_path.string());
+        const auto* modengine = table["modengine"].as_table();
+        if (modengine == nullptr) {
+            return dlls;
+        }
+
+        const auto* list = modengine->get_as<toml::array>("external_dlls");
+        if (list == nullptr) {
+            return dlls;
+        }
+
+        for (const auto& node : *list) {
+            if (const auto value = node.value<std::string>()) {
+                fs::path path(*value);
+                if (path.is_relative()) {
+                    path = config_path.parent_path() / path;
+                }
+                if (fs::exists(path)) {
+                    dlls.push_back(path);
+                }
+            }
+        }
+    } catch (...) {
+    }
+
+    return dlls;
 }
 
 }
@@ -239,30 +307,47 @@ int main(int argc, char** argv)
 
     wcscpy_s(cmd, cmd_len + 1, cmd_str.c_str());
 
-    auto proc_flags = 0;
-    bool success = DetourCreateProcessWithDllW(
-        cmd,
-        nullptr,
-        nullptr,
-        nullptr,
-        false,
-        proc_flags,
-        nullptr,
-        app_cwd.c_str(),
-        &si,
-        &pi,
-        fs::absolute(modengine_dll_path).string().c_str(),
-        reinterpret_cast<PDETOUR_CREATE_PROCESS_ROUTINEW>(create_process_addr));
+    auto external_dlls = read_external_dlls(config_path);
 
-    auto status = E_OK;
+    // Always use remote injection: DetourCreateProcessWithDllW crashes when the launcher
+    // itself lives in a path containing spaces.
+    {
+        STARTUPINFOW inject_si = {};
+        inject_si.cb = sizeof(inject_si);
+        PROCESS_INFORMATION inject_pi = {};
 
-    if (!success) {
-        logger->error("Couldn't create process: {:x}", GetLastError());
-        status = E_CREATE_PROCESS_FAILED;
+        std::wstring inject_cmd = L"\"" + cmd_str + L"\"";
+        std::vector<wchar_t> inject_cmd_buffer(inject_cmd.begin(), inject_cmd.end());
+        inject_cmd_buffer.push_back(0);
+
+        if (!CreateProcessW(cmd_str.c_str(), inject_cmd_buffer.data(), nullptr, nullptr, false,
+                CREATE_SUSPENDED, nullptr, app_cwd.c_str(), &inject_si, &inject_pi)) {
+            logger->error("Couldn't create suspended process: {:x}", GetLastError());
+            return E_CREATE_PROCESS_FAILED;
+        }
+
+        auto inject_status = E_OK;
+
+        for (const auto& dll : external_dlls) {
+            if (!inject_dll(inject_pi.hProcess, dll)) {
+                logger->error("Couldn't inject {}", dll.string());
+                inject_status = E_CREATE_PROCESS_FAILED;
+            } else {
+                logger->info("Injected {}", dll.string());
+            }
+        }
+
+        if (!inject_dll(inject_pi.hProcess, modengine_dll_path)) {
+            logger->error("Couldn't inject modengine2.dll");
+            inject_status = E_CREATE_PROCESS_FAILED;
+        }
+
+        ResumeThread(inject_pi.hThread);
+        CloseHandle(inject_pi.hThread);
+        CloseHandle(inject_pi.hProcess);
+
+        return inject_status;
     }
 
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-
-    return status;
+    return E_OK;
 }

@@ -58,7 +58,7 @@ install(FILES
 
 install(FILES
         "${VCPKG_TOOLS}/tools/crashpad_handler.exe"
-        "${VCPKG_TOOLS}/bin/zlib1.dll"
+        "${VCPKG_TOOLS}/bin/libz.dll"
         DESTINATION modengine2/crashpad
         COMPONENT application)
 
